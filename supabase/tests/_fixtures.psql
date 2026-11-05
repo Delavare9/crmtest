@@ -1,0 +1,114 @@
+-- Общая подготовка для всех файлов pgTAP. Подключается из каждого теста
+-- строкой \ir _fixtures.psql сразу после begin; всё созданное здесь
+-- откатывается вместе с тестом (rollback в конце файла).
+--
+-- Расширение .psql выбрано специально: pg_prove запускает только *.sql и *.pg,
+-- поэтому сам этот файл как тест не выполняется.
+
+-- Supabase CLI ставит pgTAP перед прогоном; строка нужна для запуска
+-- вручную через psql на голой базе.
+create extension if not exists pgtap with schema extensions;
+
+-- Тестовые пользователи с постоянными id, чтобы сообщения тестов были
+-- читаемыми. Пароли не нужны: тест не входит через Auth, а подставляет
+-- JWT-утверждения напрямую (так же, как это делает PostgREST после проверки токена).
+insert into auth.users (id, email, aud, role) values
+  ('00000000-0000-4000-a000-000000000001', 'manager@test.local',   'authenticated', 'authenticated'),
+  ('00000000-0000-4000-a000-000000000002', 'executor1@test.local', 'authenticated', 'authenticated'),
+  ('00000000-0000-4000-a000-000000000003', 'executor2@test.local', 'authenticated', 'authenticated'),
+  ('00000000-0000-4000-a000-000000000004', 'manager2@test.local',  'authenticated', 'authenticated'),
+  ('00000000-0000-4000-a000-000000000005', 'noprofile@test.local', 'authenticated', 'authenticated');
+
+-- У пользователя ...005 профиля нет: на нём проверяется, что вошедший без
+-- профиля ничего не может.
+insert into public.profiles (id, full_name, role) values
+  ('00000000-0000-4000-a000-000000000001', 'Тест Постановщик',   'manager'),
+  ('00000000-0000-4000-a000-000000000002', 'Тест Исполнитель 1', 'executor'),
+  ('00000000-0000-4000-a000-000000000003', 'Тест Исполнитель 2', 'executor'),
+  ('00000000-0000-4000-a000-000000000004', 'Тест Постановщик 2', 'manager');
+
+-- Таблица «имя → id» для объектов и задач: их id генерирует база, а тестам
+-- нужно на них ссылаться. Права на чтение выданы клиентским ролям, потому что
+-- большая часть проверок идёт уже после переключения на authenticated.
+create temp table fx (name text primary key, id uuid not null) on commit drop;
+grant select, insert on fx to authenticated, anon, service_role;
+
+-- Короткий доступ к id по имени: pg_temp.fx('task_e1').
+create function pg_temp.fx(p_name text) returns uuid
+language sql stable
+as $$ select id from fx where name = p_name $$;
+
+-- Переключает сессию на нужного участника до конца транзакции:
+--   manager, manager2, executor1, executor2, noprofile — вошедшие пользователи
+--     (роль authenticated + JWT с их id, как после входа через Auth);
+--   anon    — запрос с публичным ключом без входа;
+--   service — запрос со служебным ключом (без пользователя);
+--   owner   — владелец таблиц (postgres), как SQL-консоль администратора.
+-- RESET ROLE в начале возвращает исходного пользователя сессии, иначе из
+-- authenticated нельзя было бы переключиться обратно.
+create function pg_temp.act_as(p_who text) returns void
+language plpgsql
+as $$
+declare
+  v_sub  uuid;
+  v_role text;
+begin
+  reset role;
+
+  case p_who
+    when 'manager'   then v_sub := '00000000-0000-4000-a000-000000000001'; v_role := 'authenticated';
+    when 'executor1' then v_sub := '00000000-0000-4000-a000-000000000002'; v_role := 'authenticated';
+    when 'executor2' then v_sub := '00000000-0000-4000-a000-000000000003'; v_role := 'authenticated';
+    when 'manager2'  then v_sub := '00000000-0000-4000-a000-000000000004'; v_role := 'authenticated';
+    when 'noprofile' then v_sub := '00000000-0000-4000-a000-000000000005'; v_role := 'authenticated';
+    when 'anon'      then v_sub := null; v_role := 'anon';
+    when 'service'   then v_sub := null; v_role := 'service_role';
+    when 'owner'     then v_sub := null; v_role := null;
+    else raise exception 'неизвестный участник теста: %', p_who;
+  end case;
+
+  perform set_config('request.jwt.claims',
+                     coalesce(json_build_object('sub', v_sub, 'role', coalesce(v_role, 'postgres'))::text, ''),
+                     true);
+  if v_role is not null then
+    perform set_config('role', v_role, true);
+  end if;
+end
+$$;
+
+-- Базовые данные создаются настоящими путями — от имени постановщика,
+-- через триггеры, как это происходит в приложении:
+--   object_a — объект с задачами обоих исполнителей;
+--   object_b — объект только с задачей исполнителя 2;
+--   task_e1  — задача исполнителя 1 в статусе «Новая»;
+--   task_e2  — задача исполнителя 2 в объекте A;
+--   task_e2b — задача исполнителя 2 в объекте B.
+select pg_temp.act_as('manager');
+
+with o as (insert into public.objects (name, address) values ('Объект А', 'ул. Первая, 1') returning id)
+insert into fx select 'object_a', id from o;
+with o as (insert into public.objects (name, address) values ('Объект Б', 'ул. Вторая, 2') returning id)
+insert into fx select 'object_b', id from o;
+
+with t as (
+  insert into public.tasks (object_id, title, description, assignee_id)
+  values (pg_temp.fx('object_a'), 'Задача исполнителя 1', 'Покраска стен',
+          '00000000-0000-4000-a000-000000000002')
+  returning id)
+insert into fx select 'task_e1', id from t;
+
+with t as (
+  insert into public.tasks (object_id, title, description, assignee_id)
+  values (pg_temp.fx('object_a'), 'Задача исполнителя 2', 'Укладка плитки',
+          '00000000-0000-4000-a000-000000000003')
+  returning id)
+insert into fx select 'task_e2', id from t;
+
+with t as (
+  insert into public.tasks (object_id, title, description, assignee_id)
+  values (pg_temp.fx('object_b'), 'Задача исполнителя 2 в объекте Б', '',
+          '00000000-0000-4000-a000-000000000003')
+  returning id)
+insert into fx select 'task_e2b', id from t;
+
+select pg_temp.act_as('owner');

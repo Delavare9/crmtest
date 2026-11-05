@@ -1,0 +1,22 @@
+# Зависимости и сборка
+node_modules/
+dist/
+
+# Локальные переменные окружения: здесь служебный ключ и пароль демо-пользователей.
+# В репозиторий попадает только .env.example без значений.
+.env
+.env.local
+.env.*.local
+
+# Vercel CLI
+.vercel/
+
+# Редакторы и система
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Отчёты Playwright
+test-results/
+playwright-report/

@@ -1,0 +1,56 @@
+{
+  "name": "crmtest",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p . && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p .",
+    "format": "oxfmt src scripts tests *.ts",
+    "test": "vitest run --project unit",
+    "test:api": "vitest run --project api",
+    "test:e2e": "playwright test",
+    "db:start": "supabase start -x studio,imgproxy,mailpit,supavisor,postgres-meta",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset",
+    "db:test": "supabase test db",
+    "db:advisors": "supabase db advisors --level info --fail-on warn",
+    "db:types": "supabase gen types typescript --local --schema public > src/lib/database.types.ts && oxfmt src/lib/database.types.ts",
+    "db:push": "supabase db push --remote",
+    "env:local": "tsx scripts/local-env.ts",
+    "seed": "tsx scripts/seed.ts",
+    "check": "npm run typecheck && npm test && npm run db:test && npm run test:api && npm run test:e2e"
+  },
+  "dependencies": {
+    "@mantine/core": "^9.7.5",
+    "@mantine/hooks": "^9.7.5",
+    "@mantine/notifications": "^9.7.5",
+    "@supabase/supabase-js": "^2.119.0",
+    "@tanstack/react-query": "^5.106.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router": "^8.5.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "dotenv": "^18.0.9",
+    "oxfmt": "^0.76.0",
+    "postcss": "^8.5.32",
+    "postcss-preset-mantine": "^1.18.0",
+    "postcss-simple-vars": "^7.0.1",
+    "supabase": "^3.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}

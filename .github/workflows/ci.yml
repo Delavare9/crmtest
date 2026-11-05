@@ -1,0 +1,53 @@
+# Проверка каждого push и pull request: типы, юнит-тесты, сборка, затем
+# локальный Supabase в раннере — миграции, тесты прав в базе, аудит, заполнение,
+# атаки через REST и сквозной сценарий в браузере. Облачный проект при этом не затрагивается.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  frontend:
+    name: Типы, юнит-тесты, сборка
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      # Для сборки нужны любые значения: настоящие подставит Vercel.
+      - run: npm run build
+        env:
+          VITE_SUPABASE_URL: http://127.0.0.1:54321
+          VITE_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+
+  database:
+    name: Права в базе, атаки через API, сквозной сценарий
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: supabase/setup-cli@v3
+        with:
+          version: 3.0.0
+      # Только нужные сервисы: база, Auth, REST и шлюз.
+      - run: npm run db:start
+      - run: npm run db:test
+      # Встроенный аудит Supabase: предупреждение безопасности или производительности роняет сборку.
+      - run: npm run db:advisors
+      # .env.local из запущенного стека; пароль демо-пользователей случайный на каждый прогон.
+      - run: npm run env:local
+      - run: npm run seed
+      - run: npm run test:api
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

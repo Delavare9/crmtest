@@ -47,7 +47,26 @@ npx supabase start
 npm run db:reset && npm run seed
 ```
 
-## Деплой базы в Supabase Cloud
+## Деплой базы в Supabase Cloud кнопкой (рекомендуется)
+
+Без установки чего-либо на свой компьютер. Секреты хранятся в GitHub, в репозитории и логах их нет.
+
+1. GitHub → репозиторий → Settings → Secrets and variables → Actions → **New repository secret**. Добавить пять секретов:
+
+| Имя | Где взять |
+|---|---|
+| `SUPABASE_ACCESS_TOKEN` | supabase.com → аватар → Account preferences → **Access Tokens** → Generate new token |
+| `SUPABASE_DB_PASSWORD` | Пароль базы, заданный при создании проекта (сбросить: Project Settings → Database → Reset database password) |
+| `SUPABASE_PUBLISHABLE_KEY` | Project Settings → API Keys → Publishable key |
+| `SUPABASE_SECRET_KEY` | Project Settings → API Keys → Secret key |
+| `SEED_PASSWORD` | Пароль демо-пользователей, выбор владельца, не короче 8 символов |
+
+2. GitHub → **Actions** → «База в облако» → **Run workflow** → проверить project ref → Run.
+3. Зелёный запуск: миграции применены, аудит без предупреждений, демо-данные созданы, 23 атаки отклонены облаком.
+
+Повторный запуск безопасен: применяются только новые миграции, демо-данные не дублируются.
+
+## Деплой базы в Supabase Cloud вручную
 
 1. Создать проект в панели Supabase (регион — выбор владельца). Сохранить пароль базы.
 2. Закрыть регистрацию: Authentication → Sign In / Providers → выключить **Allow new users to sign up**. Там же — минимальная длина пароля 8.

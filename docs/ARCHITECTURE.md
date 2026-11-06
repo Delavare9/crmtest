@@ -117,7 +117,7 @@ sequenceDiagram
   participant H as task_history
   U->>API: POST /rpc/change_task_status {task, to, comment} + JWT
   API->>F: вызов под authenticated, auth.uid() из JWT
-  F->>F: роль из profiles; задача FOR UPDATE
+  F->>F: роль из profiles, задача FOR UPDATE
   alt чужая, архивная или нет такой
     F-->>U: P0002 «Задача не найдена»
   else перехода нет в task_transitions для роли

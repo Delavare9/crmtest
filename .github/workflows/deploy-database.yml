@@ -1,0 +1,85 @@
+# Заливка базы в облачный Supabase по кнопке (Actions → «База в облако» → Run workflow).
+#
+# Что делает: применяет новые миграции, создаёт демо-пользователей и данные,
+# затем прогоняет атаки через REST уже против облака.
+# Секреты берутся из GitHub → Settings → Secrets and variables → Actions,
+# в репозитории и в логах их нет (GitHub маскирует значения в выводе).
+name: База в облако
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_ref:
+        description: "Project ref Supabase (кусок адреса между https:// и .supabase.co)"
+        required: true
+        default: ijucfxltlueswkitgjxe
+      seed:
+        description: "Создать демо-пользователей и данные"
+        type: boolean
+        default: true
+      attacks:
+        description: "Прогнать атаки через API против облака"
+        type: boolean
+        default: true
+
+# Два запуска одновременно не нужны: второй ждёт первый.
+concurrency: deploy-database
+
+jobs:
+  deploy:
+    name: Миграции, данные, проверка
+    runs-on: ubuntu-latest
+    env:
+      # Токен аккаунта Supabase и пароль базы нужны только для миграций.
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      # Остальное читают scripts/env.ts и тесты атак.
+      VITE_SUPABASE_URL: https://${{ inputs.project_ref }}.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      SEED_PASSWORD: ${{ secrets.SEED_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # Понятная остановка, если какой-то секрет забыли добавить.
+      - name: Проверка секретов
+        run: |
+          missing=""
+          for name in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PUBLISHABLE_KEY SUPABASE_SECRET_KEY SEED_PASSWORD; do
+            case "$name" in
+              SUPABASE_PUBLISHABLE_KEY) value="$VITE_SUPABASE_PUBLISHABLE_KEY" ;;
+              *) value="${!name}" ;;
+            esac
+            [ -z "$value" ] && missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Не заданы секреты:$missing (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
+          echo "Все секреты на месте"
+
+      # Сначала показать, что применится, затем применить. --yes обязателен
+      # для изменений в облаке без интерактивного подтверждения.
+      - name: Миграции (план)
+        run: npx supabase db push --remote=${{ inputs.project_ref }} --password "$SUPABASE_DB_PASSWORD" --dry-run --yes
+      - name: Миграции
+        run: npx supabase db push --remote=${{ inputs.project_ref }} --password "$SUPABASE_DB_PASSWORD" --yes
+
+      # Встроенный аудит Supabase уже по облачной базе.
+      - name: Аудит безопасности
+        run: npx supabase db advisors --remote=${{ inputs.project_ref }} --type security --level warn --fail-on warn
+
+      - name: Демо-данные
+        if: inputs.seed
+        run: npm run seed
+
+      # Атаки создают свой объект и сразу переносят его в архив.
+      # Если регистрация в облаке не выключена, тест «регистрация отклоняется» упадёт — это сигнал.
+      - name: Атаки через API против облака
+        if: inputs.attacks
+        run: npm run test:api

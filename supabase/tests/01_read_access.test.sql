@@ -30,9 +30,17 @@ select is_empty(
   'исполнитель не видит объект, где у него нет задач'
 );
 
+-- Ожидаемый набор считается от владельца: в базе могут быть и другие
+-- постановщики (демо-данные), их исполнитель тоже должен видеть.
+select pg_temp.act_as('owner');
+create temp table expected_profiles on commit drop as
+  select id from public.profiles
+   where id = '00000000-0000-4000-a000-000000000002' or role = 'manager';
+grant select on expected_profiles to authenticated;
+select pg_temp.act_as('executor1');
 select set_eq(
-  $$ select full_name from public.profiles $$,
-  array['Тест Исполнитель 1', 'Тест Постановщик', 'Тест Постановщик 2'],
+  $$ select id from public.profiles $$,
+  $$ select id from expected_profiles $$,
   'исполнитель видит свой профиль и профили постановщиков, но не других исполнителей'
 );
 
@@ -72,14 +80,20 @@ select is_empty(
 -- Постановщик ----------------------------------------------------------------
 select pg_temp.act_as('manager');
 
+-- Считаем только задачи теста: в базе могут лежать демо-данные.
 select is(
-  (select count(*)::int from public.tasks),
+  (select count(*)::int from public.tasks
+    where id in (pg_temp.fx('task_e1'), pg_temp.fx('task_e2'), pg_temp.fx('task_e2b'))),
   3,
   'постановщик видит все задачи, включая архивные'
 );
+select pg_temp.act_as('owner');
+create temp table all_profiles on commit drop as select count(*)::int as n from public.profiles;
+grant select on all_profiles to authenticated;
+select pg_temp.act_as('manager');
 select is(
   (select count(*)::int from public.profiles),
-  4,
+  (select n from all_profiles),
   'постановщик видит все профили'
 );
 

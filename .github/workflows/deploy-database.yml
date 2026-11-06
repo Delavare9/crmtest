@@ -72,7 +72,7 @@ jobs:
 
       # Встроенный аудит Supabase уже по облачной базе.
       - name: Аудит безопасности
-        run: npx supabase db advisors --remote=${{ inputs.project_ref }} --password "$SUPABASE_DB_PASSWORD" --type security --level warn --fail-on warn
+        run: npx supabase db advisors --remote=${{ inputs.project_ref }} --type security --level warn --fail-on warn
 
       - name: Демо-данные
         if: inputs.seed
